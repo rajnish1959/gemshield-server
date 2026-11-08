@@ -1,0 +1,14 @@
+{
+  "name": "gemshield-server",
+  "version": "1.0.0",
+  "description": "GemShield API server - keeps AI keys off the phone",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "private": true
+}
