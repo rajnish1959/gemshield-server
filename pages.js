@@ -20,7 +20,9 @@ const shell = (title, body) => `<!DOCTYPE html>
   .gold{background:#D4A537;color:#0B3B2E}.dark{background:#0B3B2E;color:#fff}
   .small{font-size:12px;color:#5B6B66;margin-top:14px}
   .big{font-size:18px;padding:18px;line-height:1.35}
-  a.link{display:block;margin-top:14px;color:#0B3B2E;text-decoration:underline}
+  .closeTip{display:flex;gap:12px;align-items:center;text-align:left;background:#FFF6DB;border:2px solid #D4A537;
+        border-radius:14px;padding:14px;margin-top:14px;font-size:15px;color:#13201C;line-height:1.4}
+  .arrow{font-size:40px;color:#0B3B2E;font-weight:900;line-height:1}
   .hi{font-size:14px;font-weight:600}
   .tick{width:72px;height:72px;border-radius:36px;background:#1E9E5A;color:#fff;font-size:42px;font-weight:900;
         display:flex;align-items:center;justify-content:center;margin:4px auto 10px}
@@ -52,11 +54,18 @@ function androidIntent(url) {
   return `intent://${m[2]}#Intent;scheme=${scheme};${pkg ? `package=${pkg};` : ''}end`;
 }
 
-/** Big "return" button: intent link first, plain link as backup. */
+/**
+ * How to get back to the app. Closing the window (✕) always works on Android,
+ * so it is the main instruction; the app button is offered as a second option.
+ */
 function returnButtons(url) {
-  return `<a class="btn gold big" href="${esc(androidIntent(url))}">Return to GemShield<br><span class="hi">GemShield पर वापस जाएँ</span></a>
-       <a class="small link" href="${esc(url)}">Button not working? Tap here · यहाँ दबाएँ</a>
-       <p class="small">Or simply close this window (✕ at the top). · या ऊपर ✕ दबाकर यह विंडो बंद करें।</p>`;
+  return `<div class="closeTip">
+         <div class="arrow">↖</div>
+         <div><b>Tap ✕ at the top-left to return to GemShield</b><br>
+         <span class="hi">GemShield पर लौटने के लिए ऊपर बाईं ओर ✕ दबाएँ</span></div>
+       </div>
+       <p class="small">Your report will start automatically. · आपकी रिपोर्ट अपने-आप शुरू होगी।</p>
+       <a class="btn dark" href="${esc(androidIntent(url))}">Or open GemShield · या GemShield खोलें</a>`;
 }
 
 export function checkoutPage({ keyId, orderId, amountPaise, label, businessName, returnUrl }) {
