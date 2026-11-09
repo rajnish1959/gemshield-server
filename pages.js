@@ -20,6 +20,7 @@ const shell = (title, body) => `<!DOCTYPE html>
   .gold{background:#D4A537;color:#0B3B2E}.dark{background:#0B3B2E;color:#fff}
   .small{font-size:12px;color:#5B6B66;margin-top:14px}
   .big{font-size:18px;padding:18px;line-height:1.35}
+  a.link{display:block;margin-top:14px;color:#0B3B2E;text-decoration:underline}
   .hi{font-size:14px;font-weight:600}
   .tick{width:72px;height:72px;border-radius:36px;background:#1E9E5A;color:#fff;font-size:42px;font-weight:900;
         display:flex;align-items:center;justify-content:center;margin:4px auto 10px}
@@ -30,6 +31,33 @@ const shell = (title, body) => `<!DOCTYPE html>
 </style></head><body><div class="card"><div class="logo">◆</div>${body}</div></body></html>`;
 
 const withParam = (u, p) => u + (u.includes('?') ? '&' : '?') + p;
+
+// Android apps that can receive the "return to app" link.
+const ANDROID_PACKAGES = {
+  gemshield: 'in.ornategems.gemshield', // the GemShield APK
+  exp: 'host.exp.exponent', // Expo Go (testing)
+  exps: 'host.exp.exponent',
+};
+
+/**
+ * Android "intent://" form of an app link. Chrome and most Android browsers
+ * open the app reliably from this when the user taps it, unlike a bare
+ * custom-scheme link inside a payment window.
+ */
+function androidIntent(url) {
+  const m = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(url);
+  if (!m) return url;
+  const scheme = m[1].toLowerCase();
+  const pkg = ANDROID_PACKAGES[scheme];
+  return `intent://${m[2]}#Intent;scheme=${scheme};${pkg ? `package=${pkg};` : ''}end`;
+}
+
+/** Big "return" button: intent link first, plain link as backup. */
+function returnButtons(url) {
+  return `<a class="btn gold big" href="${esc(androidIntent(url))}">Return to GemShield<br><span class="hi">GemShield पर वापस जाएँ</span></a>
+       <a class="small link" href="${esc(url)}">Button not working? Tap here · यहाँ दबाएँ</a>
+       <p class="small">Or simply close this window (✕ at the top). · या ऊपर ✕ दबाकर यह विंडो बंद करें।</p>`;
+}
 
 export function checkoutPage({ keyId, orderId, amountPaise, label, businessName, returnUrl }) {
   const rupees = (amountPaise / 100).toLocaleString('en-IN');
@@ -67,8 +95,8 @@ export function checkoutPage({ keyId, orderId, amountPaise, label, businessName,
        <h1>Payment successful</h1>
        <p>भुगतान सफल। Your reports are added. Go back to the app to see your report.<br>
        आपकी रिपोर्ट जुड़ गई हैं। रिपोर्ट देखने के लिए ऐप पर वापस जाएँ।</p>
-       <a class="btn gold big" href="${esc(back('paid'))}">Return to GemShield<br><span class="hi">GemShield पर वापस जाएँ</span></a>
-       <p class="small">Do not pay again. · दोबारा भुगतान न करें।</p>
+       ${returnButtons(back('paid'))}
+       <p class="small"><b>Do not pay again. · दोबारा भुगतान न करें।</b></p>
      </div>
 
      <div id="checkView" style="display:none">
@@ -76,8 +104,8 @@ export function checkoutPage({ keyId, orderId, amountPaise, label, businessName,
        <h1>Payment received</h1>
        <p>We are still confirming it with the bank. Go back to the app and tap "I have already paid" in a minute.<br>
        बैंक से पुष्टि हो रही है। ऐप पर वापस जाएँ और एक मिनट बाद "मैं भुगतान कर चुका हूँ" दबाएँ।</p>
-       <a class="btn gold big" href="${esc(back('check'))}">Return to GemShield<br><span class="hi">GemShield पर वापस जाएँ</span></a>
-       <p class="small">Do not pay again. · दोबारा भुगतान न करें।</p>
+       ${returnButtons(back('check'))}
+       <p class="small"><b>Do not pay again. · दोबारा भुगतान न करें।</b></p>
      </div>
 
      <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
@@ -106,8 +134,6 @@ export function checkoutPage({ keyId, orderId, amountPaise, label, businessName,
 }
 
 export function messagePage(title, text, returnUrl) {
-  const btn = returnUrl
-    ? `<a class="btn gold big" href="${esc(withParam(returnUrl, 'status=paid'))}">Return to GemShield<br><span class="hi">GemShield पर वापस जाएँ</span></a>`
-    : '';
+  const btn = returnUrl ? returnButtons(withParam(returnUrl, 'status=paid')) : '';
   return shell(title, `<h1>${esc(title)}</h1><p>${esc(text)}</p>${btn}`);
 }
