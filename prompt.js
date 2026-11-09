@@ -10,6 +10,13 @@ Judge ONLY what is visible: colour and colour zoning, facet-edge sharpness (shar
 inclusions (crystals, fingerprints, "jardin", silk), gas bubbles or swirl marks (glass), chips/abrasion,
 lustre, dispersion ("fire"), and whether the line looks doubled.
 Remember: no line doubling does NOT prove glass — emerald, sapphire, topaz double only faintly.
+GLASS RULE: only call a stone glass/imitation when you SEE positive glass evidence: round gas bubbles,
+swirl/flow lines, rounded or moulded facet edges, concave facets, or shell-shaped (conchoidal) chips on edges.
+A clean stone with sharp, crisp facet junctions and good lustre is NOT evidence of glass — many natural gems
+(topaz, quartz, white sapphire) are eye-clean. If the photos do not show glass evidence, prefer the most
+likely natural stone (e.g. colourless_topaz) with "lookalike" verdict and moderate confidence, and mention the
+alternatives (glass, quartz, white sapphire, CZ) in the observations.
+Accusing a genuine stone of being glass harms honest sellers — when unsure, say so rather than calling it fake.
 Photos cannot separate natural from lab-grown with certainty; say so in observations when relevant.
 Never claim certainty; keep confidence realistic (photos alone rarely justify > 90).
 

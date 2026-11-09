@@ -37,7 +37,8 @@ export const config = {
   shopReports: num(env.SHOP_REPORTS, 5),
   pricePro: num(env.PRICE_PRO_INR, 999),        // pro / astrologer pack
   proReports: num(env.PRO_REPORTS, 50),
-  dailyLimit: num(env.DAILY_LIMIT, 10),              // max reports per phone per day
+  dailyLimit: num(env.DAILY_LIMIT, 10),
+  imageMaxSide: num(env.MAX_IMAGE_SIDE, 1568),       // photo size the app sends (pixels, longest side)              // max reports per phone per day
   perDeviceHourly: num(env.LIMIT_PER_DEVICE_PER_HOUR, 20), // anti-hammering
   globalDaily: num(env.LIMIT_PER_DAY, 1000),               // wallet safety net
 

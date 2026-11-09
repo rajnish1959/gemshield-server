@@ -124,6 +124,7 @@ async function accountInfo(deviceId) {
     todayLeft,
     dailyLimit: config.dailyLimit,
     canAnalyze: dev.credits > 0 && todayLeft > 0,
+    imageMaxSide: config.imageMaxSide,
     products: productList(),
   };
 }
