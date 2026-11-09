@@ -23,7 +23,7 @@ import { analyze } from './ai.js';
 import { checkoutPage, messagePage } from './pages.js';
 
 const MAX_BODY = 6 * 1024 * 1024;
-const AI_TIMEOUT_MS = 60_000;
+const AI_TIMEOUT_MS = 75_000; // includes retries / backup AI
 
 /* ---------- small helpers ---------- */
 function send(res, status, obj) {
@@ -136,7 +136,7 @@ async function route(req, res) {
   const appOk = config.appToken && req.headers['x-app-token'] === config.appToken;
 
   if (req.method === 'GET' && (path === '/' || path === '/health')) {
-    return send(res, 200, { ok: true, service: 'gemshield', provider: config.aiProvider });
+    return send(res, 200, { ok: true, service: 'gemshield', provider: config.aiProvider, fallback: config.aiFallback || null });
   }
 
   /* --- account --- */
@@ -215,10 +215,10 @@ async function route(req, res) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS);
     const started = Date.now();
-    let result, usage;
+    let result, usage, engine;
     try {
       const lang = data.lang === 'hi' ? 'hi' : 'en';
-      ({ result, usage } = await analyze(data.macro, data.line, ctrl.signal, lang));
+      ({ result, usage, engine } = await analyze(data.macro, data.line, ctrl.signal, lang));
     } catch (e) {
       const msg = e.name === 'AbortError' ? 'The AI took too long. Please try again — your report was not used.' : `${e.message} Your report was not used.`;
       console.error(`[analyze] ${config.aiProvider} failed: ${e.message}`);
@@ -230,12 +230,12 @@ async function route(req, res) {
     if (!(await db.useReport(data.deviceId))) {
       return send(res, 402, { error: 'Please buy a report to see the result.', code: 'PAYMENT_REQUIRED' });
     }
-    await db.logReport(data.deviceId, config.aiProvider, result?.stoneId, usage).catch(() => {});
+    await db.logReport(data.deviceId, engine, result?.stoneId, usage).catch(() => {});
     console.log(
-      `[analyze] ${config.aiProvider} ok ${Date.now() - started}ms ${accountCode(data.deviceId)} ` +
+      `[analyze] ${engine} ok ${Date.now() - started}ms ${accountCode(data.deviceId)} ` +
         `tokens in=${usage.inputTokens} out=${usage.outputTokens} cost=₹${usage.costInr}`
     );
-    return send(res, 200, { ...result, engine: config.aiProvider, account: await accountInfo(data.deviceId) });
+    return send(res, 200, { ...result, engine, account: await accountInfo(data.deviceId) });
   }
 
   /* --- admin (you only) --- */

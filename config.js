@@ -11,6 +11,7 @@ export const config = {
 
   // AI
   aiProvider: (env.AI_PROVIDER || 'gemini').toLowerCase(),
+  aiFallback: (env.AI_FALLBACK || '').toLowerCase(), // e.g. 'claude' — used if the main AI keeps failing
   geminiKey: env.GEMINI_API_KEY || '',
   geminiModel: env.GEMINI_MODEL || 'gemini-3.6-flash',
   anthropicKey: env.ANTHROPIC_API_KEY || '',

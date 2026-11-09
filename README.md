@@ -24,7 +24,9 @@ Reports are written in **English or Hindi**, following the language switch in th
 | `ADMIN_TOKEN` | your own secret text, for the admin commands below |
 | `RAZORPAY_KEY_ID` | `rzp_test_...` while testing, `rzp_live_...` when live |
 | `RAZORPAY_KEY_SECRET` | the matching secret |
-| `AI_PROVIDER` | `claude` (cheapest) or `gemini` |
+| `AI_PROVIDER` | `gemini` or `claude` (main AI) |
+| `AI_FALLBACK` | optional: the other AI (`claude` or `gemini`), used automatically if the main AI is busy or failing |
+| `MAX_IMAGE_SIDE` | optional, default 1568 (photo size in pixels the app sends) |
 | `ANTHROPIC_API_KEY` | Claude key (if `AI_PROVIDER=claude`) |
 | `GEMINI_API_KEY` | Gemini key (if `AI_PROVIDER=gemini`) |
 | `PRICE_SINGLE_INR` | optional, default 49 |

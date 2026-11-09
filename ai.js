@@ -8,7 +8,8 @@ async function readError(res, who) {
     const j = await res.json();
     if (j?.error?.message) msg += `: ${j.error.message}`;
   } catch {}
-  return msg;
+  // status lets the retry logic recognise "busy" errors (429 / 5xx)
+  return Object.assign(new Error(msg), { status: res.status });
 }
 
 async function callGemini(macro, line, signal, lang) {
@@ -36,7 +37,7 @@ async function callGemini(macro, line, signal, lang) {
       }),
     }
   );
-  if (!res.ok) throw new Error(await readError(res, 'Gemini'));
+  if (!res.ok) throw await readError(res, 'Gemini');
   const json = await res.json();
   const cand = json?.candidates?.[0];
   if (cand?.finishReason === 'MAX_TOKENS') throw new Error('Gemini reply was cut off. Please try again.');
@@ -74,7 +75,7 @@ async function callClaude(macro, line, signal, lang) {
       ],
     }),
   });
-  if (!res.ok) throw new Error(await readError(res, 'Claude'));
+  if (!res.ok) throw await readError(res, 'Claude');
   const json = await res.json();
   if (json?.stop_reason === 'max_tokens') throw new Error('Claude reply was cut off. Please try again.');
   const text = (json?.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
@@ -90,13 +91,56 @@ const PRICES = {
   claude: { in: config.claudePriceIn, out: config.claudePriceOut },
 };
 
-/** Returns { result, usage: { inputTokens, outputTokens, costInr } } */
+const isBusy = (e) => e?.status === 429 || (e?.status >= 500 && e?.status <= 599) || e?.name === 'TypeError';
+const sleep = (ms, signal) =>
+  new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener?.('abort', () => {
+      clearTimeout(t);
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    });
+  });
+
+/** One provider with automatic retries when it is busy (429 / 5xx / network). */
+async function withRetries(engine, macro, line, signal, lang) {
+  const run = PROVIDERS[engine];
+  if (!run) throw new Error(`Unknown AI provider "${engine}".`);
+  const waits = [1500, 4000]; // up to 2 retries
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await run(macro, line, signal, lang);
+    } catch (e) {
+      if (!isBusy(e) || attempt >= waits.length || signal?.aborted) throw e;
+      console.warn(`[ai] ${engine} busy (${e.message}); retry ${attempt + 1} in ${waits[attempt]}ms`);
+      await sleep(waits[attempt], signal);
+    }
+  }
+}
+
+function hasKey(engine) {
+  return engine === 'gemini' ? !!config.geminiKey : engine === 'claude' ? !!config.anthropicKey : false;
+}
+
+/**
+ * Main provider (AI_PROVIDER) with retries; if it still fails and AI_FALLBACK
+ * is set (and has a key), the same photos go to the backup provider.
+ * Returns { result, usage: { inputTokens, outputTokens, costInr }, engine }
+ */
 export async function analyze(macro, line, signal, lang = 'en') {
-  const run = PROVIDERS[config.aiProvider];
-  if (!run) throw new Error(`Unknown AI_PROVIDER "${config.aiProvider}".`);
-  const { result, usage } = await run(macro, line, signal, lang);
-  const p = PRICES[config.aiProvider];
+  let engine = config.aiProvider;
+  let out;
+  try {
+    out = await withRetries(engine, macro, line, signal, lang);
+  } catch (e) {
+    const backup = config.aiFallback;
+    if (!backup || backup === engine || !hasKey(backup) || signal?.aborted) throw e;
+    console.warn(`[ai] ${engine} failed (${e.message}); using backup ${backup}`);
+    engine = backup;
+    out = await withRetries(engine, macro, line, signal, lang);
+  }
+  const { result, usage } = out;
+  const p = PRICES[engine];
   const usd = (usage.inputTokens * p.in + usage.outputTokens * p.out) / 1e6;
   usage.costInr = Math.round(usd * config.usdToInr * 10000) / 10000;
-  return { result, usage };
+  return { result, usage, engine };
 }
