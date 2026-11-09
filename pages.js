@@ -19,6 +19,14 @@ const shell = (title, body) => `<!DOCTYPE html>
         font-size:16px;font-weight:700;margin-top:12px;text-decoration:none}
   .gold{background:#D4A537;color:#0B3B2E}.dark{background:#0B3B2E;color:#fff}
   .small{font-size:12px;color:#5B6B66;margin-top:14px}
+  .big{font-size:18px;padding:18px;line-height:1.35}
+  .hi{font-size:14px;font-weight:600}
+  .tick{width:72px;height:72px;border-radius:36px;background:#1E9E5A;color:#fff;font-size:42px;font-weight:900;
+        display:flex;align-items:center;justify-content:center;margin:4px auto 10px}
+  .tick.warn{background:#E0A100}
+  .spin{width:48px;height:48px;border:5px solid #E1E7E4;border-top-color:#0B3B2E;border-radius:50%;
+        margin:10px auto;animation:sp 0.9s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
 </style></head><body><div class="card"><div class="logo">◆</div>${body}</div></body></html>`;
 
 const withParam = (u, p) => u + (u.includes('?') ? '&' : '?') + p;
@@ -34,28 +42,59 @@ export function checkoutPage({ keyId, orderId, amountPaise, label, businessName,
     description: label,
     theme: { color: '#0B3B2E' },
   };
+  const back = (st) => withParam(returnUrl, `status=${st}`);
   return shell(
     'GemShield payment',
-    `<h1>GemShield</h1>
-     <p>${esc(label)}</p>
-     <div class="price">₹${esc(rupees)}</div>
-     <button class="gold" id="pay">Pay securely · सुरक्षित भुगतान करें</button>
-     <a class="btn dark" href="${esc(withParam(returnUrl, 'status=cancel'))}">Cancel · रद्द करें</a>
-     <p class="small">One-time payment. Non-refundable. Payments by Razorpay (UPI, cards, net banking).<br>
-     एक बार का भुगतान। वापसी योग्य नहीं। भुगतान Razorpay द्वारा (UPI, कार्ड, नेट बैंकिंग)।</p>
-     <p id="msg" class="small"></p>
+    `<div id="payView">
+       <h1>GemShield</h1>
+       <p>${esc(label)}</p>
+       <div class="price">₹${esc(rupees)}</div>
+       <button class="gold" id="pay">Pay securely · सुरक्षित भुगतान करें</button>
+       <a class="btn dark" href="${esc(back('cancel'))}">Cancel · रद्द करें</a>
+       <p class="small">One-time payment. Non-refundable. Payments by Razorpay (UPI, cards, net banking).<br>
+       एक बार का भुगतान। वापसी योग्य नहीं। भुगतान Razorpay द्वारा (UPI, कार्ड, नेट बैंकिंग)।</p>
+       <p id="msg" class="small"></p>
+     </div>
+
+     <div id="waitView" style="display:none">
+       <div class="spin"></div>
+       <h1>Confirming payment…</h1>
+       <p>भुगतान की पुष्टि हो रही है… Please wait a few seconds.</p>
+     </div>
+
+     <div id="doneView" style="display:none">
+       <div class="tick">✓</div>
+       <h1>Payment successful</h1>
+       <p>भुगतान सफल। Your reports are added. Go back to the app to see your report.<br>
+       आपकी रिपोर्ट जुड़ गई हैं। रिपोर्ट देखने के लिए ऐप पर वापस जाएँ।</p>
+       <a class="btn gold big" href="${esc(back('paid'))}">Return to GemShield<br><span class="hi">GemShield पर वापस जाएँ</span></a>
+       <p class="small">Do not pay again. · दोबारा भुगतान न करें।</p>
+     </div>
+
+     <div id="checkView" style="display:none">
+       <div class="tick warn">!</div>
+       <h1>Payment received</h1>
+       <p>We are still confirming it with the bank. Go back to the app and tap "I have already paid" in a minute.<br>
+       बैंक से पुष्टि हो रही है। ऐप पर वापस जाएँ और एक मिनट बाद "मैं भुगतान कर चुका हूँ" दबाएँ।</p>
+       <a class="btn gold big" href="${esc(back('check'))}">Return to GemShield<br><span class="hi">GemShield पर वापस जाएँ</span></a>
+       <p class="small">Do not pay again. · दोबारा भुगतान न करें।</p>
+     </div>
+
      <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
      <script>
-       var RETURN = ${JSON.stringify(returnUrl)};
-       var SEP = RETURN.indexOf('?') === -1 ? '?' : '&';
        var opts = ${JSON.stringify(opts)};
+       function show(id) {
+         ['payView', 'waitView', 'doneView', 'checkView'].forEach(function (v) {
+           document.getElementById(v).style.display = v === id ? 'block' : 'none';
+         });
+       }
        opts.handler = function (r) {
-         document.getElementById('msg').textContent = 'Confirming payment… / भुगतान की पुष्टि हो रही है…';
+         show('waitView');
          fetch('/pay/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
            body: JSON.stringify({ order_id: r.razorpay_order_id, payment_id: r.razorpay_payment_id, signature: r.razorpay_signature }) })
            .then(function (x) { return x.json(); })
-           .then(function (j) { location.href = RETURN + SEP + (j.ok ? 'status=paid' : 'status=check'); })
-           .catch(function () { location.href = RETURN + SEP + 'status=check'; });
+           .then(function (j) { show(j.ok ? 'doneView' : 'checkView'); })
+           .catch(function () { show('checkView'); });
        };
        opts.modal = { ondismiss: function () { document.getElementById('msg').textContent = 'Payment not completed. Tap "Pay securely" to try again. / भुगतान पूरा नहीं हुआ। फिर से प्रयास करें।'; } };
        var rzp = new Razorpay(opts);
@@ -66,6 +105,9 @@ export function checkoutPage({ keyId, orderId, amountPaise, label, businessName,
   );
 }
 
-export function messagePage(title, text) {
-  return shell(title, `<h1>${esc(title)}</h1><p>${esc(text)}</p>`);
+export function messagePage(title, text, returnUrl) {
+  const btn = returnUrl
+    ? `<a class="btn gold big" href="${esc(withParam(returnUrl, 'status=paid'))}">Return to GemShield<br><span class="hi">GemShield पर वापस जाएँ</span></a>`
+    : '';
+  return shell(title, `<h1>${esc(title)}</h1><p>${esc(text)}</p>${btn}`);
 }

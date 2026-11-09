@@ -168,7 +168,11 @@ async function route(req, res) {
     const order = await db.getOrderRow(orderId);
     if (!order) return sendHtml(res, 404, messagePage('Payment not found', 'Please go back to the GemShield app and try again.'));
     if (order.status === 'paid') {
-      return sendHtml(res, 200, messagePage('Already paid', 'This payment is complete. Go back to the GemShield app.'));
+      return sendHtml(
+        res,
+        200,
+        messagePage('Already paid · भुगतान हो चुका है', 'This payment is complete. Do not pay again. Go back to the GemShield app. / यह भुगतान पूरा हो चुका है। दोबारा भुगतान न करें।', order.return_url || config.appReturnUrl)
+      );
     }
     const prod = product(order.kind);
     return sendHtml(
