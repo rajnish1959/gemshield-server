@@ -46,7 +46,17 @@ For a summary, run this in Command Prompt (replace the address and admin token):
 curl -H "x-admin-token: YOUR_ADMIN_TOKEN" https://gemshield-server.onrender.com/admin/costs
 ```
 
-## Admin: helping a customer
+## Admin page
+Open **https://gemshield-server.onrender.com/admin**, or the copy on your website (see below), and sign in with your `ADMIN_TOKEN`.
+It shows money received (test and live), reports bought and used, AI cost, recent payments and reports, and lets you
+look up a customer, add or remove reports, and transfer reports to a new phone.
+
+**Copy on ornategems.com:** upload `index.html` from the `GemShield-Admin` folder to a folder on your site with cPanel,
+for example `public_html/gs-admin/`, then open `https://ornategems.com/gs-admin/`.
+The server only accepts admin requests from the websites listed in `ADMIN_ORIGINS`
+(default: `https://ornategems.com,https://www.ornategems.com`).
+
+## Admin: helping a customer (command line)
 Customers see an **Account code** (8 characters) on the app's home screen.
 
 Check a phone's balance:

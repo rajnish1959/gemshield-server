@@ -21,6 +21,7 @@ import * as db from './db.js';
 import * as rzp from './razorpay.js';
 import { analyze } from './ai.js';
 import { checkoutPage, messagePage } from './pages.js';
+import { adminPage } from './admin.js';
 
 const MAX_BODY = 6 * 1024 * 1024;
 const AI_TIMEOUT_MS = 75_000; // includes retries / backup AI
@@ -135,6 +136,22 @@ async function route(req, res) {
   const path = url.pathname;
   const appOk = config.appToken && req.headers['x-app-token'] === config.appToken;
 
+  // Let the admin page hosted on your own website (e.g. ornategems.com) call /admin/* here.
+  if (path.startsWith('/admin/')) {
+    const origin = String(req.headers.origin || '').replace(/\/+$/, '');
+    if (origin && config.adminOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Headers', 'x-admin-token, content-type');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Max-Age', '600');
+    }
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      return res.end();
+    }
+  }
+
   if (req.method === 'GET' && (path === '/' || path === '/health')) {
     return send(res, 200, { ok: true, service: 'gemshield', provider: config.aiProvider, fallback: config.aiFallback || null });
   }
@@ -158,7 +175,8 @@ async function route(req, res) {
     if (!validDevice(deviceId) || !prod) return send(res, 400, { error: 'Bad request.' });
     const amountPaise = Math.round(prod.rupees * 100);
     const order = await rzp.createOrder(amountPaise, `gs_${Date.now()}`, { deviceId, kind });
-    await db.createOrderRow(order.id, deviceId, prod.kind, prod.reports, amountPaise, safeReturn);
+    const mode = config.rzpKeyId.startsWith('rzp_live') ? 'live' : 'test';
+    await db.createOrderRow(order.id, deviceId, prod.kind, prod.reports, amountPaise, safeReturn, mode);
     return send(res, 200, { url: `${baseUrl(req)}/pay/checkout/${order.id}`, orderId: order.id });
   }
 
@@ -242,6 +260,13 @@ async function route(req, res) {
     return send(res, 200, { ...result, engine, account: await accountInfo(data.deviceId) });
   }
 
+  /* --- admin web page (the page itself holds no secrets; every action needs the admin token) --- */
+  if (req.method === 'GET' && (path === '/admin' || path === '/admin/')) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Robots-Tag', 'noindex');
+    return sendHtml(res, 200, adminPage());
+  }
+
   /* --- admin (you only) --- */
   if (path.startsWith('/admin/')) {
     if (!config.adminToken || req.headers['x-admin-token'] !== config.adminToken) return send(res, 401, { error: 'Not authorised.' });
@@ -253,6 +278,14 @@ async function route(req, res) {
     if (req.method === 'GET' && path === '/admin/device') {
       const id = await one(url.searchParams.get('code'));
       return send(res, 200, await accountInfo(id));
+    }
+    if (req.method === 'GET' && path === '/admin/stats') {
+      return send(res, 200, await db.adminStats());
+    }
+    if (req.method === 'GET' && path === '/admin/recent') {
+      const mask = (r) => ({ ...r, code: accountCode(r.device_id), device_id: undefined });
+      const [orders, reports] = await Promise.all([db.recentOrders(20), db.recentReports(20)]);
+      return send(res, 200, { orders: orders.map(mask), reports: reports.map(mask) });
     }
     if (req.method === 'GET' && path === '/admin/costs') {
       return send(res, 200, { currency: 'INR', byEngine: await db.costSummary() });

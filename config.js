@@ -8,6 +8,9 @@ export const config = {
   // Security
   appToken: env.APP_TOKEN || '',          // shared with the app
   adminToken: env.ADMIN_TOKEN || '',      // for you only (account transfers)
+  // Websites allowed to use the admin page from outside this server (comma-separated).
+  adminOrigins: (env.ADMIN_ORIGINS || 'https://ornategems.com,https://www.ornategems.com')
+    .split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean),
 
   // AI
   aiProvider: (env.AI_PROVIDER || 'gemini').toLowerCase(),
