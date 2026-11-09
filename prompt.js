@@ -34,6 +34,20 @@ Respond with JSON only (no markdown, no extra text), exactly this shape:
   "questions": ["2-3 sharp questions the buyer should ask the seller right now"]
 }`;
 
+/** Prompt for the chosen report language: 'en' (default) or 'hi'. */
+export function buildPrompt(lang = 'en') {
+  if (lang !== 'hi') return VISION_PROMPT;
+  return (
+    VISION_PROMPT +
+    `
+
+LANGUAGE: Write "label", every "observations" value, "redFlags" and "questions" in simple, clear HINDI
+(Devanagari script) for an ordinary Indian buyer. Use common Hindi gem names where natural
+(पन्ना = emerald, नीलम = blue sapphire, माणिक = ruby, पुखराज = yellow sapphire, पुखराज/टोपाज़ for topaz as appropriate).
+Keep "stoneId", "verdict" and all JSON keys in English exactly as specified.`
+  );
+}
+
 /** Tolerant JSON parser: strips ```json fences and any text around the object. */
 export function parseJsonReply(text, who = 'AI') {
   const s = String(text || '');

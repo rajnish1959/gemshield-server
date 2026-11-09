@@ -1,142 +1,40 @@
-// GemShield API server — keeps the AI keys off the phone.
-// Zero dependencies: plain Node.js 20+ (built-in http + fetch).
+// GemShield API server — keeps AI keys off the phone, sells report credits
+// through Razorpay, and only runs the AI for paid reports.
+// Needs Node.js 20+. One dependency: pg (Postgres client).
 //
-// Endpoints
-//   GET  /health     -> { ok: true }                 (used by Render + app wake-up)
-//   POST /analyze    -> body { macro: "<base64 jpeg>", line: "<base64 jpeg>", deviceId?: "..." }
-//                       header  x-app-token: <APP_TOKEN>
-//                       returns the AI's JSON result (the app normalises it)
-//
-// Settings (Render → Environment). Only the keys you use are needed.
-//   GEMINI_API_KEY      Google AI Studio key
-//   ANTHROPIC_API_KEY   Claude Console key
-//   AI_PROVIDER         gemini | claude          (default: gemini)
-//   GEMINI_MODEL        default gemini-3.6-flash
-//   CLAUDE_MODEL        default claude-haiku-5-5
-//   CLAUDE_EFFORT       default low
-//   APP_TOKEN           any long random text; the app sends the same text
-//   LIMIT_PER_DEVICE_PER_HOUR   default 20
-//   LIMIT_PER_DAY               default 300  (protects your wallet)
+// App endpoints (header x-app-token required):
+//   GET  /account?deviceId=...      balance, prices, today's remaining reports
+//   POST /pay/create                { deviceId, kind: "single" | "shop" | "pro", returnUrl } -> { url }
+//   POST /analyze                   { deviceId, macro, line, lang: "en" | "hi" }  (uses 1 report)
+// Browser endpoints (payment page):
+//   GET  /pay/checkout/:orderId     Razorpay checkout page
+//   POST /pay/verify                called by the checkout page after payment
+// Admin endpoints (header x-admin-token):
+//   GET  /admin/device?code=XXXXXXXX
+//   POST /admin/transfer            { fromCode, toCode }
+//   POST /admin/adjust              { code, reports }   (+ or -)
+//   GET  /admin/costs               real AI cost per report so far
+// Health: GET /health
 import http from 'node:http';
-import { VISION_PROMPT, parseJsonReply } from './prompt.js';
+import { config } from './config.js';
+import * as db from './db.js';
+import * as rzp from './razorpay.js';
+import { analyze } from './ai.js';
+import { checkoutPage, messagePage } from './pages.js';
 
-const env = process.env;
-const PORT = Number(env.PORT) || 3000;
-const PROVIDER = (env.AI_PROVIDER || 'gemini').toLowerCase();
-const APP_TOKEN = env.APP_TOKEN || '';
-const PER_DEVICE_HOUR = Number(env.LIMIT_PER_DEVICE_PER_HOUR) || 20;
-const PER_DAY = Number(env.LIMIT_PER_DAY) || 300;
-const MAX_BODY = 6 * 1024 * 1024; // 6 MB
+const MAX_BODY = 6 * 1024 * 1024;
 const AI_TIMEOUT_MS = 60_000;
 
-/* ---------------- rate limits (in memory; reset when server restarts) ---------------- */
-const hourly = new Map(); // key -> { count, resetAt }
-let day = { date: '', count: 0 };
-
-function checkLimits(key) {
-  const now = Date.now();
-  const today = new Date().toISOString().slice(0, 10);
-  if (day.date !== today) day = { date: today, count: 0 };
-  if (day.count >= PER_DAY) return 'Daily limit reached for GemShield. Please try again tomorrow.';
-
-  const h = hourly.get(key);
-  if (!h || h.resetAt < now) hourly.set(key, { count: 0, resetAt: now + 3_600_000 });
-  const slot = hourly.get(key);
-  if (slot.count >= PER_DEVICE_HOUR) return 'Too many checks from this phone. Please wait an hour.';
-
-  slot.count += 1;
-  day.count += 1;
-  return null;
-}
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of hourly) if (v.resetAt < now) hourly.delete(k);
-}, 600_000).unref();
-
-/* ---------------- AI providers ---------------- */
-async function readError(res, who) {
-  let msg = `${who} error ${res.status}`;
-  try {
-    const j = await res.json();
-    if (j?.error?.message) msg += `: ${j.error.message}`;
-  } catch {}
-  return msg;
-}
-
-async function callGemini(macro, line, signal) {
-  const key = env.GEMINI_API_KEY;
-  if (!key) throw new Error('Server is missing GEMINI_API_KEY.');
-  const model = env.GEMINI_MODEL || 'gemini-3.6-flash';
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-    method: 'POST',
-    signal,
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: 'Photo 1 — macro photo of the stone:' },
-            { inline_data: { mime_type: 'image/jpeg', data: macro } },
-            { text: 'Photo 2 — line-doubling test through the back of the stone:' },
-            { inline_data: { mime_type: 'image/jpeg', data: line } },
-            { text: VISION_PROMPT },
-          ],
-        },
-      ],
-      generationConfig: { responseMimeType: 'application/json' },
-    }),
-  });
-  if (!res.ok) throw new Error(await readError(res, 'Gemini'));
-  const json = await res.json();
-  const cand = json?.candidates?.[0];
-  if (cand?.finishReason === 'MAX_TOKENS') throw new Error('Gemini reply was cut off. Please try again.');
-  const text = cand?.content?.parts?.map((p) => p.text || '').join('') || '';
-  return parseJsonReply(text, 'Gemini');
-}
-
-async function callClaude(macro, line, signal) {
-  const key = env.ANTHROPIC_API_KEY;
-  if (!key) throw new Error('Server is missing ANTHROPIC_API_KEY.');
-  const img = (data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } });
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    signal,
-    headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({
-      model: env.CLAUDE_MODEL || 'claude-haiku-5-5',
-      max_tokens: 4000,
-      output_config: { effort: env.CLAUDE_EFFORT || 'low' },
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Photo 1 — macro photo of the stone:' },
-            img(macro),
-            { type: 'text', text: 'Photo 2 — line-doubling test through the back of the stone:' },
-            img(line),
-            { type: 'text', text: VISION_PROMPT },
-          ],
-        },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(await readError(res, 'Claude'));
-  const json = await res.json();
-  if (json?.stop_reason === 'max_tokens') throw new Error('Claude reply was cut off. Please try again.');
-  const text = (json?.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
-  return parseJsonReply(text, 'Claude');
-}
-
-const PROVIDERS = { gemini: callGemini, claude: callClaude };
-
-/* ---------------- HTTP plumbing ---------------- */
+/* ---------- small helpers ---------- */
 function send(res, status, obj) {
   const body = JSON.stringify(obj);
   res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
   res.end(body);
 }
-
+function sendHtml(res, status, html) {
+  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -152,63 +50,241 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
-
-const isB64 = (s) => typeof s === 'string' && s.length > 1000 && /^[A-Za-z0-9+/=\r\n]+$/.test(s.slice(0, 2000));
-
-export const server = http.createServer(async (req, res) => {
+async function readJson(req) {
   try {
-    const url = new URL(req.url, 'http://x');
+    return JSON.parse((await readBody(req)) || '{}');
+  } catch (e) {
+    throw Object.assign(new Error(e.status ? e.message : 'Bad request.'), { status: e.status || 400 });
+  }
+}
+const validDevice = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(id);
+const isB64 = (s) => typeof s === 'string' && s.length > 1000 && /^[A-Za-z0-9+/=\r\n]+$/.test(s.slice(0, 2000));
+const accountCode = (id) => String(id).slice(0, 8).toUpperCase();
+const baseUrl = (req) => `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`;
 
-    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
-      return send(res, 200, { ok: true, service: 'gemshield', provider: PROVIDER });
-    }
+/* ---------- anti-hammering (memory) + wallet safety net ---------- */
+const hourly = new Map();
+let globalDay = { date: '', count: 0 };
+function hammerCheck(deviceId) {
+  const now = Date.now();
+  const d = db.today();
+  if (globalDay.date !== d) globalDay = { date: d, count: 0 };
+  if (globalDay.count >= config.globalDaily) return 'GemShield is very busy today. Please try again tomorrow.';
+  let h = hourly.get(deviceId);
+  if (!h || h.resetAt < now) hourly.set(deviceId, (h = { count: 0, resetAt: now + 3_600_000 }));
+  if (h.count >= config.perDeviceHourly) return 'Too many attempts from this phone. Please wait an hour.';
+  h.count += 1;
+  globalDay.count += 1;
+  return null;
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of hourly) if (v.resetAt < now) hourly.delete(k);
+}, 600_000).unref();
 
-    if (req.method !== 'POST' || url.pathname !== '/analyze') {
-      return send(res, 404, { error: 'Not found' });
-    }
+/* ---------- products ---------- */
+function productList() {
+  return [
+    { kind: 'single', reports: 1, price: config.priceSingle },
+    { kind: 'shop', reports: config.shopReports, price: config.priceShop },
+    { kind: 'pro', reports: config.proReports, price: config.pricePro },
+  ].filter((p) => p.reports > 0 && p.price > 0);
+}
+function product(kind) {
+  const p = productList().find((x) => x.kind === kind);
+  if (!p) return null;
+  return { ...p, rupees: p.price, label: p.reports === 1 ? 'GemShield — 1 full report' : `GemShield — ${p.reports} reports` };
+}
 
-    if (!APP_TOKEN || req.headers['x-app-token'] !== APP_TOKEN) {
-      return send(res, 401, { error: 'Not authorised.' });
-    }
-
-    let data;
+/** Checks Razorpay for any of this phone's unfinished orders that were actually paid. */
+async function reconcile(deviceId) {
+  if (!config.rzpKeyId) return;
+  for (const order of await db.pendingOrders(deviceId)) {
     try {
-      data = JSON.parse(await readBody(req));
+      const list = await rzp.fetchOrderPayments(order.order_id);
+      for (const p of list?.items || []) {
+        if (await rzp.confirmPayment(p, order.order_id, order.amount_paise)) {
+          await db.markPaidAndGrant(order.order_id, p.id);
+          break;
+        }
+      }
     } catch (e) {
-      return send(res, e.status || 400, { error: e.status ? e.message : 'Bad request.' });
+      console.error('[reconcile]', order.order_id, e.message);
     }
-    if (!isB64(data?.macro) || !isB64(data?.line)) {
-      return send(res, 400, { error: 'Both photos are required.' });
+  }
+}
+
+async function accountInfo(deviceId) {
+  const dev = await db.getDevice(deviceId);
+  const used = await db.usedToday(deviceId);
+  const todayLeft = Math.max(0, config.dailyLimit - used);
+  return {
+    code: accountCode(deviceId),
+    reports: dev.credits,
+    todayLeft,
+    dailyLimit: config.dailyLimit,
+    canAnalyze: dev.credits > 0 && todayLeft > 0,
+    products: productList(),
+  };
+}
+
+/* ---------- routes ---------- */
+async function route(req, res) {
+  const url = new URL(req.url, 'http://x');
+  const path = url.pathname;
+  const appOk = config.appToken && req.headers['x-app-token'] === config.appToken;
+
+  if (req.method === 'GET' && (path === '/' || path === '/health')) {
+    return send(res, 200, { ok: true, service: 'gemshield', provider: config.aiProvider });
+  }
+
+  /* --- account --- */
+  if (req.method === 'GET' && path === '/account') {
+    if (!appOk) return send(res, 401, { error: 'Not authorised.' });
+    const deviceId = url.searchParams.get('deviceId');
+    if (!validDevice(deviceId)) return send(res, 400, { error: 'Invalid phone ID.' });
+    await reconcile(deviceId);
+    return send(res, 200, await accountInfo(deviceId));
+  }
+
+  /* --- start a payment --- */
+  if (req.method === 'POST' && path === '/pay/create') {
+    if (!appOk) return send(res, 401, { error: 'Not authorised.' });
+    const { deviceId, kind, returnUrl } = await readJson(req);
+    const prod = product(kind);
+    // Only allow returning to the GemShield app (APK) or Expo Go during testing.
+    const safeReturn = typeof returnUrl === 'string' && /^(gemshield|exp|exps):\/\/[^\s"'<>]*$/.test(returnUrl) ? returnUrl : null;
+    if (!validDevice(deviceId) || !prod) return send(res, 400, { error: 'Bad request.' });
+    const amountPaise = Math.round(prod.rupees * 100);
+    const order = await rzp.createOrder(amountPaise, `gs_${Date.now()}`, { deviceId, kind });
+    await db.createOrderRow(order.id, deviceId, prod.kind, prod.reports, amountPaise, safeReturn);
+    return send(res, 200, { url: `${baseUrl(req)}/pay/checkout/${order.id}`, orderId: order.id });
+  }
+
+  /* --- payment page (opened in the phone's browser) --- */
+  if (req.method === 'GET' && path.startsWith('/pay/checkout/')) {
+    const orderId = decodeURIComponent(path.slice('/pay/checkout/'.length));
+    const order = await db.getOrderRow(orderId);
+    if (!order) return sendHtml(res, 404, messagePage('Payment not found', 'Please go back to the GemShield app and try again.'));
+    if (order.status === 'paid') {
+      return sendHtml(res, 200, messagePage('Already paid', 'This payment is complete. Go back to the GemShield app.'));
     }
+    const prod = product(order.kind);
+    return sendHtml(
+      res,
+      200,
+      checkoutPage({
+        keyId: config.rzpKeyId,
+        orderId,
+        amountPaise: order.amount_paise,
+        label: prod?.label || 'GemShield reports',
+        businessName: config.businessName,
+        returnUrl: order.return_url || config.appReturnUrl,
+      })
+    );
+  }
 
-    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
-    const who = typeof data.deviceId === 'string' && data.deviceId ? `d:${data.deviceId.slice(0, 64)}` : `ip:${ip}`;
-    const limitMsg = checkLimits(who);
-    if (limitMsg) return send(res, 429, { error: limitMsg });
+  /* --- payment confirmation from the checkout page --- */
+  if (req.method === 'POST' && path === '/pay/verify') {
+    const { order_id, payment_id, signature } = await readJson(req);
+    const order = await db.getOrderRow(order_id);
+    if (!order || !rzp.signatureOk(order_id, payment_id, signature)) return send(res, 400, { ok: false });
+    const payment = await rzp.fetchPayment(payment_id);
+    if (!(await rzp.confirmPayment(payment, order_id, order.amount_paise))) return send(res, 400, { ok: false });
+    await db.markPaidAndGrant(order_id, payment_id);
+    console.log(`[pay] ${order.kind} paid for ${accountCode(order.device_id)}`);
+    return send(res, 200, { ok: true });
+  }
 
-    const run = PROVIDERS[PROVIDER];
-    if (!run) return send(res, 500, { error: `Unknown AI_PROVIDER "${PROVIDER}".` });
+  /* --- analyse (uses 1 report) --- */
+  if (req.method === 'POST' && path === '/analyze') {
+    if (!appOk) return send(res, 401, { error: 'Not authorised.' });
+    const data = await readJson(req);
+    if (!validDevice(data.deviceId)) return send(res, 400, { error: 'Invalid phone ID.' });
+    if (!isB64(data.macro) || !isB64(data.line)) return send(res, 400, { error: 'Both photos are required.' });
+
+    const info = await accountInfo(data.deviceId);
+    if (info.reports <= 0) return send(res, 402, { error: 'Please buy a report to see the result.', code: 'PAYMENT_REQUIRED' });
+    if (info.todayLeft <= 0) {
+      return send(res, 429, { error: `Daily limit of ${config.dailyLimit} reports reached. Please continue tomorrow.`, code: 'DAILY_LIMIT' });
+    }
+    const hammer = hammerCheck(data.deviceId);
+    if (hammer) return send(res, 429, { error: hammer, code: 'RATE_LIMIT' });
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS);
     const started = Date.now();
+    let result, usage;
     try {
-      const result = await run(data.macro, data.line, ctrl.signal);
-      console.log(`[analyze] ${PROVIDER} ok ${Date.now() - started}ms ${result?.stoneId || ''}`);
-      return send(res, 200, { ...result, engine: PROVIDER });
+      const lang = data.lang === 'hi' ? 'hi' : 'en';
+      ({ result, usage } = await analyze(data.macro, data.line, ctrl.signal, lang));
     } catch (e) {
-      const msg = e.name === 'AbortError' ? 'The AI took too long. Please try again.' : e.message;
-      console.error(`[analyze] ${PROVIDER} failed: ${msg}`);
+      const msg = e.name === 'AbortError' ? 'The AI took too long. Please try again — your report was not used.' : `${e.message} Your report was not used.`;
+      console.error(`[analyze] ${config.aiProvider} failed: ${e.message}`);
       return send(res, 502, { error: msg });
     } finally {
       clearTimeout(timer);
     }
+    // Only now — after a successful result — is the report used.
+    if (!(await db.useReport(data.deviceId))) {
+      return send(res, 402, { error: 'Please buy a report to see the result.', code: 'PAYMENT_REQUIRED' });
+    }
+    await db.logReport(data.deviceId, config.aiProvider, result?.stoneId, usage).catch(() => {});
+    console.log(
+      `[analyze] ${config.aiProvider} ok ${Date.now() - started}ms ${accountCode(data.deviceId)} ` +
+        `tokens in=${usage.inputTokens} out=${usage.outputTokens} cost=₹${usage.costInr}`
+    );
+    return send(res, 200, { ...result, engine: config.aiProvider, account: await accountInfo(data.deviceId) });
+  }
+
+  /* --- admin (you only) --- */
+  if (path.startsWith('/admin/')) {
+    if (!config.adminToken || req.headers['x-admin-token'] !== config.adminToken) return send(res, 401, { error: 'Not authorised.' });
+    const one = async (code) => {
+      const rows = await db.findByCode(code);
+      if (rows.length !== 1) throw Object.assign(new Error(`Account code ${code} not found (or not unique).`), { status: 404 });
+      return rows[0].device_id;
+    };
+    if (req.method === 'GET' && path === '/admin/device') {
+      const id = await one(url.searchParams.get('code'));
+      return send(res, 200, await accountInfo(id));
+    }
+    if (req.method === 'GET' && path === '/admin/costs') {
+      return send(res, 200, { currency: 'INR', byEngine: await db.costSummary() });
+    }
+    if (req.method === 'POST' && path === '/admin/transfer') {
+      const { fromCode, toCode } = await readJson(req);
+      const dev = await db.transferCredits(await one(fromCode), await one(toCode));
+      return send(res, 200, { ok: true, code: accountCode(dev.device_id), reports: dev.credits });
+    }
+    if (req.method === 'POST' && path === '/admin/adjust') {
+      const { code, reports } = await readJson(req);
+      const dev = await db.adjustCredits(await one(code), Math.trunc(Number(reports) || 0));
+      return send(res, 200, { ok: true, code: accountCode(dev.device_id), reports: dev.credits });
+    }
+  }
+
+  return send(res, 404, { error: 'Not found' });
+}
+
+export const server = http.createServer(async (req, res) => {
+  try {
+    await route(req, res);
   } catch (e) {
-    console.error('[server]', e);
-    if (!res.headersSent) send(res, 500, { error: 'Server error.' });
+    const status = e.status || 500;
+    if (status === 500) console.error('[server]', e);
+    if (!res.headersSent) send(res, status, { error: status === 500 ? `Server error: ${e.message}` : e.message });
   }
 });
 
+export async function start() {
+  await db.initDb();
+  server.listen(config.port, () => console.log(`GemShield server on :${config.port} using ${config.aiProvider}`));
+}
+
 if (process.env.NODE_ENV !== 'test') {
-  server.listen(PORT, () => console.log(`GemShield server on :${PORT} using ${PROVIDER}`));
+  start().catch((e) => {
+    console.error('Failed to start:', e.message);
+    process.exit(1);
+  });
 }
