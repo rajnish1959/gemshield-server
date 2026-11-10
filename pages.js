@@ -1,6 +1,13 @@
 // HTML pages shown in the phone's browser during payment.
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// Business details and policy links, shown at the foot of every page.
+const SITE = 'https://ornategems.com/gemshield/';
+const LEGAL = `<div class="legal">GemShield by <b>ORNATEGEMSINDIA</b>, Indore, Madhya Pradesh, India<br>
+  <a href="${SITE}terms.html">Terms of Use</a> · <a href="${SITE}privacy-policy.html">Privacy Policy</a> ·
+  <a href="${SITE}refund-policy.html">Refund Policy</a><br>
+  Contact: <a href="mailto:ornategemsindia@gmail.com">ornategemsindia@gmail.com</a></div>`;
+
 const shell = (title, body) => `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -30,7 +37,17 @@ const shell = (title, body) => `<!DOCTYPE html>
   .spin{width:48px;height:48px;border:5px solid #E1E7E4;border-top-color:#0B3B2E;border-radius:50%;
         margin:10px auto;animation:sp 0.9s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
-</style></head><body><div class="card"><div class="logo">◆</div>${body}</div></body></html>`;
+  h2{font-size:15px;color:#0B3B2E;margin:20px 0 6px;text-align:left}
+  .card p,.card ol{text-align:left}
+  table.packs{width:100%;border-collapse:collapse;font-size:14px;text-align:left}
+  table.packs td{padding:9px 6px;border-bottom:1px solid #E1E7E4;vertical-align:top}
+  td.pr{text-align:right;font-weight:800;color:#0B3B2E;font-size:16px;white-space:nowrap}
+  .per{font-size:11px;font-weight:500;color:#5B6B66}
+  ol.steps{font-size:14px;color:#5B6B66;line-height:1.45;padding-left:20px;margin:6px 0}
+  ol.steps li{margin-bottom:6px}
+  .legal{font-size:11.5px;color:#5B6B66;margin-top:18px;border-top:1px solid #E1E7E4;padding-top:12px;line-height:1.6}
+  .legal a{color:#0B3B2E}
+</style></head><body><div class="card"><div class="logo">◆</div>${body}${LEGAL}</div></body></html>`;
 
 const withParam = (u, p) => u + (u.includes('?') ? '&' : '?') + p;
 
@@ -139,6 +156,47 @@ export function checkoutPage({ keyId, orderId, amountPaise, label, businessName,
        document.getElementById('pay').onclick = function () { rzp.open(); };
        setTimeout(function () { rzp.open(); }, 400);
      </script>`
+  );
+}
+
+/** Shown at the server's main address — the public face of this payment service (for customers and Razorpay). */
+export function aboutPage({ single = 49, shop = 149, shopN = 5, pro = 999, proN = 50 } = {}) {
+  const inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
+  const each = (p, n) => `₹${(p / n).toFixed(2)} each`;
+  const row = (name, hi, price, per) =>
+    `<tr><td><b>${name}</b><br><span class="hi">${hi}</span></td><td class="pr">${price}<br><span class="per">${per}</span></td></tr>`;
+  return shell(
+    'GemShield by ORNATEGEMSINDIA — reports and payments',
+    `<h1>GemShield</h1>
+     <p><b>Check a gemstone before you buy.</b> GemShield is an Android app by <b>ORNATEGEMSINDIA</b>
+     (Indore, India — the business behind <a href="https://ornategems.com/">ornategems.com</a>).
+     It studies two phone photos of a stone and gives a preliminary risk report, warning signs and
+     questions to ask the seller.</p>
+     <p class="hi">रत्न खरीदने से पहले जाँच लें। GemShield, ORNATEGEMSINDIA का Android ऐप है।</p>
+
+     <h2>Report packs · रिपोर्ट पैक</h2>
+     <table class="packs">
+       ${row('1 report', '1 रिपोर्ट', inr(single), '')}
+       ${row(`${shopN} reports`, `${shopN} रिपोर्ट`, inr(shop), each(shop, shopN))}
+       ${row(`${proN} reports (Pro)`, `${proN} रिपोर्ट (प्रो)`, inr(pro), each(pro, proN))}
+     </table>
+     <p class="small">Taking photos is free. Prices include all charges. One-time payments, no subscription.
+     Reports do not expire. Non-refundable — see the Refund Policy.</p>
+
+     <h2>How to buy · कैसे खरीदें</h2>
+     <ol class="steps">
+       <li>Install the free GemShield app from <a href="https://ornategems.com/gemshield/">ornategems.com/gemshield</a>.</li>
+       <li>Take the two photos of your stone.</li>
+       <li>Under <b>Unlock your report</b>, choose a pack. This secure page opens for payment by UPI, card or net banking (Razorpay). No login is needed.</li>
+       <li>Your report opens in the app as soon as the payment is confirmed.</li>
+     </ol>
+
+     <h2>Policies · नीतियाँ</h2>
+     <p><a href="${SITE}terms.html">Terms of Use</a> · <a href="${SITE}privacy-policy.html">Privacy Policy</a> ·
+     <a href="${SITE}refund-policy.html">Refund &amp; Cancellation Policy</a></p>
+
+     <a class="btn gold" href="${SITE}">About GemShield · GemShield के बारे में</a>
+     <a class="btn dark" href="mailto:ornategemsindia@gmail.com">Contact us · संपर्क करें</a>`
   );
 }
 

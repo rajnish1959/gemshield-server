@@ -20,7 +20,7 @@ import { config } from './config.js';
 import * as db from './db.js';
 import * as rzp from './razorpay.js';
 import { analyze } from './ai.js';
-import { checkoutPage, messagePage } from './pages.js';
+import { aboutPage, checkoutPage, messagePage } from './pages.js';
 import { adminPage } from './admin.js';
 
 const MAX_BODY = 6 * 1024 * 1024;
@@ -152,7 +152,20 @@ async function route(req, res) {
     }
   }
 
-  if (req.method === 'GET' && (path === '/' || path === '/health')) {
+  if (req.method === 'GET' && path === '/') {
+    return sendHtml(
+      res,
+      200,
+      aboutPage({
+        single: config.priceSingle,
+        shop: config.priceShop,
+        shopN: config.shopReports,
+        pro: config.pricePro,
+        proN: config.proReports,
+      })
+    );
+  }
+  if (req.method === 'GET' && path === '/health') {
     return send(res, 200, { ok: true, service: 'gemshield', provider: config.aiProvider, fallback: config.aiFallback || null });
   }
 
