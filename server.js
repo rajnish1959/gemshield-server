@@ -177,7 +177,8 @@ async function route(req, res) {
     const order = await rzp.createOrder(amountPaise, `gs_${Date.now()}`, { deviceId, kind });
     const mode = config.rzpKeyId.startsWith('rzp_live') ? 'live' : 'test';
     await db.createOrderRow(order.id, deviceId, prod.kind, prod.reports, amountPaise, safeReturn, mode);
-    return send(res, 200, { url: `${baseUrl(req)}/pay/checkout/${order.id}`, orderId: order.id });
+    const payBase = config.payBaseUrl || baseUrl(req);
+    return send(res, 200, { url: `${payBase}/pay/checkout/${order.id}`, orderId: order.id });
   }
 
   /* --- payment page (opened in the phone's browser) --- */

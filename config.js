@@ -29,6 +29,9 @@ export const config = {
 
   // Database (Neon Postgres connection string)
   databaseUrl: env.DATABASE_URL || '',
+  // Optional: address the payment page is served from, e.g. https://pay.ornategems.com
+  // (must be a website registered with Razorpay). Empty = use the address the app called.
+  payBaseUrl: (env.PAY_BASE_URL || '').trim().replace(/\/+$/, ''),
 
   // Razorpay
   rzpKeyId: env.RAZORPAY_KEY_ID || '',
