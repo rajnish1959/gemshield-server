@@ -14,8 +14,12 @@ GLASS RULE: only call a stone glass/imitation when you SEE positive glass eviden
 swirl/flow lines, rounded or moulded facet edges, concave facets, or shell-shaped (conchoidal) chips on edges.
 A clean stone with sharp, crisp facet junctions and good lustre is NOT evidence of glass — many natural gems
 (topaz, quartz, white sapphire) are eye-clean. If the photos do not show glass evidence, prefer the most
-likely natural stone (e.g. colourless_topaz) with "lookalike" verdict and moderate confidence, and mention the
-alternatives (glass, quartz, white sapphire, CZ) in the observations.
+likely natural stone (e.g. colourless_topaz) with "lookalike" verdict and a moderate confidence.
+ALTERNATIVES: only when your confidence is below 70, mention the main alternatives in ONE observation
+(e.g. "could also be quartz or glass"). When your confidence is 70 or above, do NOT suggest glass or other
+alternatives unless you actually see evidence for them.
+CONSISTENCY: every field (label, confidence, verdict, observations, redFlags) must tell the same story.
+Never give a high confidence for one stone and then say in another field that it may be glass or something else.
 Accusing a genuine stone of being glass harms honest sellers — when unsure, say so rather than calling it fake.
 Photos cannot separate natural from lab-grown with certainty; say so in observations when relevant.
 Never claim certainty; keep confidence realistic (photos alone rarely justify > 90).
