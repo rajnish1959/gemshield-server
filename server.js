@@ -6,7 +6,7 @@
 //   GET  /account?deviceId=...      balance, prices, today's remaining reports
 //   POST /pay/create                { deviceId, kind: "single" | "shop" | "pro", returnUrl } -> { url }
 //   POST /analyze                   { deviceId, macro, line, line2?, line3?, lang: "en" | "hi" }  (uses 1 report)
-//                                   line2/line3 = line test turned 90° and tilted (app v1.1+); older apps send only line
+//                                   line2 = turned 90°, line3 = other facet (optional) (app v1.1+); older apps send only line
 // Browser endpoints (payment page):
 //   GET  /pay/checkout/:orderId     Razorpay checkout page
 //   POST /pay/verify                called by the checkout page after payment
@@ -255,7 +255,7 @@ async function route(req, res) {
     let result, usage, engine;
     try {
       const lang = data.lang === 'hi' ? 'hi' : 'en';
-      const lines = [data.line, data.line2, data.line3].filter(isB64); // 1 (old app) or 3 line-test photos
+      const lines = [data.line, data.line2, data.line3].filter(isB64); // 1 (old app), 2 or 3 line-test photos
       ({ result, usage, engine } = await analyze(data.macro, lines, ctrl.signal, lang));
     } catch (e) {
       const msg = e.name === 'AbortError' ? 'The AI took too long. Please try again — your report was not used.' : `${e.message} Your report was not used.`;
