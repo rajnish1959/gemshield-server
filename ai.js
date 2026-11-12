@@ -1,6 +1,6 @@
-// Calls Gemini or Claude with the two photos. Switch with AI_PROVIDER on Render.
+// Calls Gemini or Claude with the photos (macro + 1 or 3 line tests). Switch with AI_PROVIDER on Render.
 import { config } from './config.js';
-import { buildPrompt, parseJsonReply } from './prompt.js';
+import { buildPrompt, parseJsonReply, photoParts } from './prompt.js';
 
 async function readError(res, who) {
   let msg = `${who} error ${res.status}`;
@@ -12,7 +12,7 @@ async function readError(res, who) {
   return Object.assign(new Error(msg), { status: res.status });
 }
 
-async function callGemini(macro, line, signal, lang) {
+async function callGemini(macro, lines, signal, lang) {
   if (!config.geminiKey) throw new Error('Server is missing GEMINI_API_KEY.');
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${config.geminiModel}:generateContent`,
@@ -25,11 +25,11 @@ async function callGemini(macro, line, signal, lang) {
           {
             role: 'user',
             parts: [
-              { text: 'Photo 1 — macro photo of the stone:' },
-              { inline_data: { mime_type: 'image/jpeg', data: macro } },
-              { text: 'Photo 2 — line-doubling test through the back of the stone:' },
-              { inline_data: { mime_type: 'image/jpeg', data: line } },
-              { text: buildPrompt(lang) },
+              ...photoParts(macro, lines).flatMap((p) => [
+                { text: p.label },
+                { inline_data: { mime_type: 'image/jpeg', data: p.data } },
+              ]),
+              { text: buildPrompt(lang, lines.length) },
             ],
           },
         ],
@@ -50,7 +50,7 @@ async function callGemini(macro, line, signal, lang) {
   return { result: parseJsonReply(text, 'Gemini'), usage };
 }
 
-async function callClaude(macro, line, signal, lang) {
+async function callClaude(macro, lines, signal, lang) {
   if (!config.anthropicKey) throw new Error('Server is missing ANTHROPIC_API_KEY.');
   const img = (data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } });
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -65,11 +65,8 @@ async function callClaude(macro, line, signal, lang) {
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Photo 1 — macro photo of the stone:' },
-            img(macro),
-            { type: 'text', text: 'Photo 2 — line-doubling test through the back of the stone:' },
-            img(line),
-            { type: 'text', text: buildPrompt(lang) },
+            ...photoParts(macro, lines).flatMap((p) => [{ type: 'text', text: p.label }, img(p.data)]),
+            { type: 'text', text: buildPrompt(lang, lines.length) },
           ],
         },
       ],
@@ -102,13 +99,13 @@ const sleep = (ms, signal) =>
   });
 
 /** One provider with automatic retries when it is busy (429 / 5xx / network). */
-async function withRetries(engine, macro, line, signal, lang) {
+async function withRetries(engine, macro, lines, signal, lang) {
   const run = PROVIDERS[engine];
   if (!run) throw new Error(`Unknown AI provider "${engine}".`);
   const waits = [1500, 4000]; // up to 2 retries
   for (let attempt = 0; ; attempt++) {
     try {
-      return await run(macro, line, signal, lang);
+      return await run(macro, lines, signal, lang);
     } catch (e) {
       if (!isBusy(e) || attempt >= waits.length || signal?.aborted) throw e;
       console.warn(`[ai] ${engine} busy (${e.message}); retry ${attempt + 1} in ${waits[attempt]}ms`);
@@ -127,16 +124,17 @@ function hasKey(engine) {
  * Returns { result, usage: { inputTokens, outputTokens, costInr }, engine }
  */
 export async function analyze(macro, line, signal, lang = 'en') {
+  const lines = Array.isArray(line) ? line : [line]; // 1 photo (old app) or 3
   let engine = config.aiProvider;
   let out;
   try {
-    out = await withRetries(engine, macro, line, signal, lang);
+    out = await withRetries(engine, macro, lines, signal, lang);
   } catch (e) {
     const backup = config.aiFallback;
     if (!backup || backup === engine || !hasKey(backup) || signal?.aborted) throw e;
     console.warn(`[ai] ${engine} failed (${e.message}); using backup ${backup}`);
     engine = backup;
-    out = await withRetries(engine, macro, line, signal, lang);
+    out = await withRetries(engine, macro, lines, signal, lang);
   }
   const { result, usage } = out;
   const p = PRICES[engine];

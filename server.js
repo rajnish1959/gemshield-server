@@ -5,7 +5,8 @@
 // App endpoints (header x-app-token required):
 //   GET  /account?deviceId=...      balance, prices, today's remaining reports
 //   POST /pay/create                { deviceId, kind: "single" | "shop" | "pro", returnUrl } -> { url }
-//   POST /analyze                   { deviceId, macro, line, lang: "en" | "hi" }  (uses 1 report)
+//   POST /analyze                   { deviceId, macro, line, line2?, line3?, lang: "en" | "hi" }  (uses 1 report)
+//                                   line2/line3 = line test turned 90° and tilted (app v1.1+); older apps send only line
 // Browser endpoints (payment page):
 //   GET  /pay/checkout/:orderId     Razorpay checkout page
 //   POST /pay/verify                called by the checkout page after payment
@@ -23,8 +24,8 @@ import { analyze } from './ai.js';
 import { aboutPage, checkoutPage, messagePage } from './pages.js';
 import { adminPage } from './admin.js';
 
-const MAX_BODY = 6 * 1024 * 1024;
-const AI_TIMEOUT_MS = 75_000; // includes retries / backup AI
+const MAX_BODY = 12 * 1024 * 1024; // macro + up to 3 line-test photos
+const AI_TIMEOUT_MS = 90_000; // includes retries / backup AI (4 photos take a little longer)
 
 /* ---------- small helpers ---------- */
 function send(res, status, obj) {
@@ -254,7 +255,8 @@ async function route(req, res) {
     let result, usage, engine;
     try {
       const lang = data.lang === 'hi' ? 'hi' : 'en';
-      ({ result, usage, engine } = await analyze(data.macro, data.line, ctrl.signal, lang));
+      const lines = [data.line, data.line2, data.line3].filter(isB64); // 1 (old app) or 3 line-test photos
+      ({ result, usage, engine } = await analyze(data.macro, lines, ctrl.signal, lang));
     } catch (e) {
       const msg = e.name === 'AbortError' ? 'The AI took too long. Please try again — your report was not used.' : `${e.message} Your report was not used.`;
       console.error(`[analyze] ${config.aiProvider} failed: ${e.message}`);
