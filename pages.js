@@ -76,6 +76,11 @@ function androidIntent(url) {
  * so it is the main instruction; the app button is offered as a second option.
  */
 function returnButtons(url) {
+  // Web version (ornategems.com/gemshield/app/): a plain link back to the report page.
+  if (/^https:\/\//i.test(url)) {
+    return `<a class="btn gold" href="${esc(url)}">Back to my report · मेरी रिपोर्ट पर लौटें</a>
+       <p class="small">Your report will start automatically. · आपकी रिपोर्ट अपने-आप शुरू होगी।</p>`;
+  }
   return `<div class="closeTip">
          <div class="arrow">↖</div>
          <div><b>Tap ✕ at the top-left to return to GemShield</b><br>
@@ -137,6 +142,8 @@ export function checkoutPage({ keyId, orderId, amountPaise, label, businessName,
      <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
      <script>
        var opts = ${JSON.stringify(opts)};
+       var WEB = ${JSON.stringify(/^https:\/\//i.test(returnUrl || ''))};
+       var BACK_PAID = ${JSON.stringify(back('paid'))};
        function show(id) {
          ['payView', 'waitView', 'doneView', 'checkView'].forEach(function (v) {
            document.getElementById(v).style.display = v === id ? 'block' : 'none';
@@ -147,7 +154,10 @@ export function checkoutPage({ keyId, orderId, amountPaise, label, businessName,
          fetch('/pay/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
            body: JSON.stringify({ order_id: r.razorpay_order_id, payment_id: r.razorpay_payment_id, signature: r.razorpay_signature }) })
            .then(function (x) { return x.json(); })
-           .then(function (j) { show(j.ok ? 'doneView' : 'checkView'); })
+           .then(function (j) {
+             show(j.ok ? 'doneView' : 'checkView');
+             if (j.ok && WEB) setTimeout(function () { location.href = BACK_PAID; }, 1500);
+           })
            .catch(function () { show('checkView'); });
        };
        opts.modal = { ondismiss: function () { document.getElementById('msg').textContent = 'Payment not completed. Tap "Pay securely" to try again. / भुगतान पूरा नहीं हुआ। फिर से प्रयास करें।'; } };

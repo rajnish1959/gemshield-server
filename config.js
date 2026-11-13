@@ -11,6 +11,9 @@ export const config = {
   // Websites allowed to use the admin page from outside this server (comma-separated).
   adminOrigins: (env.ADMIN_ORIGINS || 'https://ornategems.com,https://www.ornategems.com')
     .split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean),
+  // Websites allowed to use GemShield in the browser (the web version at ornategems.com/gemshield/app/).
+  webOrigins: (env.WEB_ORIGINS || 'https://ornategems.com,https://www.ornategems.com')
+    .split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean),
 
   // AI
   aiProvider: (env.AI_PROVIDER || 'gemini').toLowerCase(),

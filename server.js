@@ -5,6 +5,7 @@
 // App endpoints (header x-app-token required):
 //   GET  /account?deviceId=...      balance, prices, today's remaining reports
 //   POST /pay/create                { deviceId, kind: "single" | "shop" | "pro", returnUrl } -> { url }
+//   (The web version at ornategems.com/gemshield/app/ may call these three without the token, from WEB_ORIGINS.)
 //   POST /analyze                   { deviceId, macro, line, line2?, line3?, lang: "en" | "hi" }  (uses 1 report)
 //                                   line2 = turned 90°, line3 = other facet (optional) (app v1.1+); older apps send only line
 // Browser endpoints (payment page):
@@ -135,11 +136,25 @@ async function accountInfo(deviceId) {
 async function route(req, res) {
   const url = new URL(req.url, 'http://x');
   const path = url.pathname;
-  const appOk = config.appToken && req.headers['x-app-token'] === config.appToken;
+  const origin = String(req.headers.origin || '').replace(/\/+$/, '');
+  const webOk = !!origin && config.webOrigins.includes(origin);
+  const appOk = (config.appToken && req.headers['x-app-token'] === config.appToken) || webOk;
+
+  // Browser version of GemShield (on your own website) may call the app endpoints.
+  if (webOk && (path === '/account' || path === '/pay/create' || path === '/analyze')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Max-Age', '600');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      return res.end();
+    }
+  }
 
   // Let the admin page hosted on your own website (e.g. ornategems.com) call /admin/* here.
   if (path.startsWith('/admin/')) {
-    const origin = String(req.headers.origin || '').replace(/\/+$/, '');
     if (origin && config.adminOrigins.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
@@ -184,8 +199,11 @@ async function route(req, res) {
     if (!appOk) return send(res, 401, { error: 'Not authorised.' });
     const { deviceId, kind, returnUrl } = await readJson(req);
     const prod = product(kind);
-    // Only allow returning to the GemShield app (APK) or Expo Go during testing.
-    const safeReturn = typeof returnUrl === 'string' && /^(gemshield|exp|exps):\/\/[^\s"'<>]*$/.test(returnUrl) ? returnUrl : null;
+    // Only allow returning to the GemShield app (APK), Expo Go during testing, or the web version on your own site.
+    const appReturn = typeof returnUrl === 'string' && /^(gemshield|exp|exps):\/\/[^\s"'<>]*$/.test(returnUrl);
+    const webReturn = typeof returnUrl === 'string' && /^https:\/\/[^\s"'<>]*$/.test(returnUrl) &&
+      config.webOrigins.some((o) => returnUrl.startsWith(o + '/'));
+    const safeReturn = appReturn || webReturn ? returnUrl : null;
     if (!validDevice(deviceId) || !prod) return send(res, 400, { error: 'Bad request.' });
     const amountPaise = Math.round(prod.rupees * 100);
     const order = await rzp.createOrder(amountPaise, `gs_${Date.now()}`, { deviceId, kind });
